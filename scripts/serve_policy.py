@@ -18,6 +18,7 @@ class EnvMode(enum.Enum):
     ALOHA_SIM = "aloha_sim"
     DROID = "droid"
     LIBERO = "libero"
+    DEXWILD = "dexwild"
 
 
 @dataclasses.dataclass
@@ -72,6 +73,10 @@ DEFAULT_CHECKPOINT: dict[EnvMode, Checkpoint] = {
     EnvMode.LIBERO: Checkpoint(
         config="pi0_fast_libero",
         dir="s3://openpi-assets/checkpoints/pi0_fast_libero",
+    ),
+    EnvMode.DEXWILD: Checkpoint(
+        config="pi0_fast_dexwild_low_mem_finetune",
+        dir="/home/adamkan/summer-work/dex_pi/checkpoints/pi0_fast_dexwild_low_mem_finetune",
     ),
 }
 

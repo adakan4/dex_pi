@@ -15,11 +15,10 @@ from scipy.spatial.transform import Rotation
 
 from lerobot.common.datasets.lerobot_dataset import LEROBOT_HOME
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-import tensorflow_datasets as tfds
 from pose_utils import poses7d_to_mats, mats_to_poses7d
 import tyro
 
-REPO_NAME = "adakan4/dexwild_spray"  # Name of the output dataset, also used for the Hugging Face Hub
+REPO_NAME = "adakan4/dexwild_toy_cleanup"  # Name of the output dataset, also used for the Hugging Face Hub
 # RAW_DATASET_NAMES = [
 #     "libero_10_no_noops",
 #     "libero_goal_no_noops",
@@ -33,7 +32,7 @@ xarmID = pybullet.loadURDF("xarm/xarm6_robot.urdf")
 
 def main(data_dir: str, *, push_to_hub: bool = False):
     data_folder = data_dir
-    action_keys = ["right_leapv1", "right_arm_eef"]
+    action_keys = ["right_leapv2", "right_arm_eef"]
     img_keys = ["right_pinky_cam", "right_thumb_cam"]
     traj_folders = glob(f"{data_folder}/*")
 
@@ -41,14 +40,13 @@ def main(data_dir: str, *, push_to_hub: bool = False):
     output_path = LEROBOT_HOME / REPO_NAME
     if output_path.exists():
         shutil.rmtree(output_path)
-
     # Create LeRobot dataset, define features to store
     # OpenPi assumes that proprio is stored in `state` and actions in `action`
     # LeRobot assumes that dtype of image data is `image`
     dataset = LeRobotDataset.create(
         repo_id=REPO_NAME,
         robot_type="xarm",
-        fps=10,
+        fps=30,
         features={
             "right_thumb_image": {
                 "dtype": "image",
@@ -62,12 +60,12 @@ def main(data_dir: str, *, push_to_hub: bool = False):
             },
             "state": {
                 "dtype": "float32",
-                "shape": (22,),
+                "shape": (23,),
                 "names": ["state"],
             },
             "actions": {
                 "dtype": "float32",
-                "shape": (22,),
+                "shape": (23,),
                 "names": ["actions"],
             },
         },
@@ -91,7 +89,7 @@ def main(data_dir: str, *, push_to_hub: bool = False):
         # Load the state and action data
         with open(f"{traj_folder}/right_arm_eef/right_arm_eef.pkl", "rb") as f:
             arm_state_quats = pkl.load(f)[:, 1:]  # Skip the first column (timestep)
-        with open(f"{traj_folder}/right_leapv1/right_leapv1.pkl", "rb") as f:
+        with open(f"{traj_folder}/right_leapv2/right_leapv2.pkl", "rb") as f:
             leap_state_data = pkl.load(f)[:, 1:]  # Skip the first column (timestep)
         
         # switch to homogeneous matrices to apply the Xarm-Leap offset transformation
@@ -124,8 +122,8 @@ def main(data_dir: str, *, push_to_hub: bool = False):
             for idx in range(min(len(action_data), len(state_data))):
                 timestep = timesteps[idx]
                 # Load the image data
-                right_thumb_img = Image.open(os.path.join(os.path.expanduser("~"), "summer-work", "data_spray", f"{traj_folder}", "right_thumb_cam", f"{timestep}.jpg"))
-                right_pinky_img = Image.open(os.path.join(os.path.expanduser("~"), "summer-work", "data_spray", f"{traj_folder}", "right_pinky_cam", f"{timestep}.jpg"))
+                right_thumb_img = Image.open(f"{traj_folder}/right_thumb_cam/{timestep}.jpg")
+                right_pinky_img = Image.open(f"{traj_folder}/right_pinky_cam/{timestep}.jpg")
 
                 dataset.add_frame(
                         {
@@ -135,15 +133,18 @@ def main(data_dir: str, *, push_to_hub: bool = False):
                             "actions": action_data[idx],
                         }
                     )
-                dataset.save_episode(task="pick up and use the spray bottle")
+
+            dataset.save_episode(task="clean up the toys")
     
+    right_thumb_img.close()
+    right_pinky_img.close()
     # Consolidate the dataset, skip computing stats since we will do that later
     dataset.consolidate(run_compute_stats=False)
 
     # Optionally push to the Hugging Face Hub
     if push_to_hub:
         dataset.push_to_hub(
-            tags=["libero", "panda", "rlds"],
+            tags=["dexwild"],
             private=False,
             push_videos=True,
             license="apache-2.0",
