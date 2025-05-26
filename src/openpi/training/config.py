@@ -602,27 +602,27 @@ _CONFIGS = [
         ema_decay=None,
     ),
     TrainConfig(
-    name="pi0_dexwild_low_mem_finetune",
-    # Here is an example of loading a pi0 model for LoRA fine-tuning.
-    model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
-    data=LeRobotDexwildDataConfig(
-        repo_id="adakan4/dexwild_toy_cleanup",
-        base_config=DataConfig(
-            local_files_only=False,  # Set to True for local-only datasets.
-            prompt_from_task=True,
+        name="pi0_dexwild_lora",
+        # Here is an example of loading a pi0 model for LoRA fine-tuning.
+        model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
+        data=LeRobotDexwildDataConfig(
+            repo_id="adakan4/dexwild_toy_cleanup",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=True,
+            ),
         ),
-    ),
-    weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
-    num_train_steps=30_000,
-    # The freeze filter defines which parameters should be frozen during training.
-    # We have a convenience function in the model config that returns the default freeze filter
-    # for the given model config for LoRA finetuning. Just make sure it matches the model config
-    # you chose above.
-    freeze_filter=pi0.Pi0Config(
-        paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
-    ).get_freeze_filter(),
-    # Turn off EMA for LoRA finetuning.
-    ema_decay=None,
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=30_000,
+        # The freeze filter defines which parameters should be frozen during training.
+        # We have a convenience function in the model config that returns the default freeze filter
+        # for the given model config for LoRA finetuning. Just make sure it matches the model config
+        # you chose above.
+        freeze_filter=pi0.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
     ),
     TrainConfig(
         name="pi0_fast_libero",
@@ -677,7 +677,7 @@ _CONFIGS = [
     # Here is an example of loading a pi0-FAST model for LoRA finetuning.
     # For setting action_dim, action_horizon, and max_token_len, see the comments above.
     model=pi0_fast.Pi0FASTConfig(
-        action_dim=23, action_horizon=10, max_token_len=250, paligemma_variant="gemma_2b_lora"
+        action_dim=23, action_horizon=15, max_token_len=350, paligemma_variant="gemma_2b_lora"
     ),
     data=LeRobotDexwildDataConfig(
         repo_id="adakan4/dexwild_toy_cleanup",
@@ -691,7 +691,7 @@ _CONFIGS = [
     # Again, make sure to match the model config above when extracting the freeze filter
     # that specifies which parameters should be frozen during LoRA finetuning.
     freeze_filter=pi0_fast.Pi0FASTConfig(
-        action_dim=23, action_horizon=10, max_token_len=180, paligemma_variant="gemma_2b_lora"
+        action_dim=23, action_horizon=15, max_token_len=350, paligemma_variant="gemma_2b_lora"
     ).get_freeze_filter(),
     # Turn off EMA for LoRA finetuning.
     ema_decay=None,

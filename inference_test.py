@@ -104,8 +104,11 @@ else:
         # This returns an action chunk of shape (action_horizon, action_dim).
         # Note that you typically only need to call the policy every N steps and execute steps
         # from the predicted action chunk open-loop in the remaining steps.
+       
         action_chunk = client.infer(observation)["actions"]
-        print(type(action_chunk))
+        print(action_chunk.shape)
+
+        
         # Execute the actions in the environment.
 
 for step in range(num_steps):
