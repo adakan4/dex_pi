@@ -23,7 +23,7 @@ pybullet.connect(pybullet.DIRECT)
 pybullet.setAdditionalSearchPath(pybullet_data.getDataPath())
 xarmID = pybullet.loadURDF("xarm/xarm6_robot.urdf")
 
-data_dir = "/home/adamkan/summer-work/dexwild_data/toy_cleanup_data/robot/data_01_23_robot_toy"
+data_dir = "/home/alfredo/telekinesis_3/all_data/data_01_23_robot_toy"
 
 data_folder = data_dir
 action_keys = ["right_leapv2", "right_arm_eef"]
@@ -87,7 +87,6 @@ else:
         # We provide utilities for resizing images + uint8 conversion so you match the training routines.
         # The typical resize_size for pre-trained pi0 models is 224.
         # Note that the proprioceptive `state` can be passed unnormalized, normalization will be handled on the server side.
-        print(state_data[idx][0:22].shape)
         
         observation = {
             "observation/right_thumb_image": image_tools.convert_to_uint8(
@@ -104,11 +103,22 @@ else:
         # This returns an action chunk of shape (action_horizon, action_dim).
         # Note that you typically only need to call the policy every N steps and execute steps
         # from the predicted action chunk open-loop in the remaining steps.
-       
-        action_chunk = client.infer(observation)["actions"]
-        print(action_chunk.shape)
+        if idx > 0:
+            action_chunk = client.infer(observation)["actions"]
+            
+            # Print the norm difference between the action chunk and the action data
+            diff_norm = np.linalg.norm(action_chunk[0] - action_data[idx])
+            print("Norm difference:", diff_norm)
+            if diff_norm > 0.1:
+                print("Warning: Action difference is large!")
+            else:
+                print("Predicted Action: ", action_chunk[0] - action_data[idx-1])
+                print("Ground Truth Action: ", action_data[idx]- action_data[idx-1])
 
+            diff_norm = np.linalg.norm(action_chunk[0] - action_data[idx-1])
+            print("Control difference:", diff_norm)
         
+
         # Execute the actions in the environment.
 
 for step in range(num_steps):
