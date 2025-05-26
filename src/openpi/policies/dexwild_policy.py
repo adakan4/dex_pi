@@ -70,9 +70,9 @@ class DexwildInputs(transforms.DataTransformFn):
         inputs = {
             "state": state,
             "image": {
+                # Pad any non-existent images with zero-arrays of the appropriate shape.
                 "base_0_rgb": np.zeros_like(right_thumb_image),
                 "right_wrist_0_rgb": right_thumb_image,
-                # Pad any non-existent images with zero-arrays of the appropriate shape.
                 "left_wrist_0_rgb": right_pinky_image,
             },
             "image_mask": {
