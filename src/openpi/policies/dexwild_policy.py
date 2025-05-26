@@ -73,7 +73,7 @@ class DexwildInputs(transforms.DataTransformFn):
                 "base_0_rgb": np.zeros_like(right_thumb_image),
                 "right_wrist_0_rgb": right_thumb_image,
                 # Pad any non-existent images with zero-arrays of the appropriate shape.
-                "left_wrist_0_rgb": np.zeros_like(right_pinky_image),
+                "left_wrist_0_rgb": right_pinky_image,
             },
             "image_mask": {
                 "base_0_rgb": np.False_ if mask_padding else np.True_,
