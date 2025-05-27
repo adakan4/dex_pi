@@ -18,7 +18,7 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from pose_utils import poses7d_to_mats, mats_to_poses7d
 import tyro
 
-REPO_NAME = "adakan4/dexwild_toy_cleanup"  # Name of the output dataset, also used for the Hugging Face Hub
+# REPO_NAME = "adakan4/dexwild_toy_cleanup"  # Name of the output dataset, also used for the Hugging Face Hub, now added as a parameter when running the script in terminal
 # RAW_DATASET_NAMES = [
 #     "libero_10_no_noops",
 #     "libero_goal_no_noops",
@@ -30,8 +30,9 @@ pybullet.connect(pybullet.DIRECT)
 pybullet.setAdditionalSearchPath(pybullet_data.getDataPath())
 xarmID = pybullet.loadURDF("xarm/xarm6_robot.urdf")
 
-def main(data_dir: str, *, push_to_hub: bool = False):
+def main(data_dir: str, repo_name: str, *, push_to_hub: bool = False):
     data_folder = data_dir
+    REPO_NAME = repo_name
     action_keys = ["right_leapv2", "right_arm_eef"]
     img_keys = ["right_pinky_cam", "right_thumb_cam"]
     traj_folders = glob(f"{data_folder}/*")
