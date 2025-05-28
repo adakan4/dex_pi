@@ -27,6 +27,7 @@ class ModelType(enum.Enum):
     """Supported model types."""
 
     PI0 = "pi0"
+    PI0Dex = "pi0_dex"
     PI0_FAST = "pi0_fast"
 
 

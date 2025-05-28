@@ -65,7 +65,7 @@ def posemb_sincos(
 
 
 @dataclasses.dataclass(frozen=True)
-class Pi0Config(_model.BaseModelConfig):
+class Pi0DexConfig(_model.BaseModelConfig):
     dtype: str = "bfloat16"
     paligemma_variant: _gemma.Variant = "gemma_2b"
     action_expert_variant: _gemma.Variant = "gemma_300m"
@@ -78,11 +78,11 @@ class Pi0Config(_model.BaseModelConfig):
     @property
     @override
     def model_type(self) -> _model.ModelType:
-        return _model.ModelType.PI0
+        return _model.ModelType.PI0Dex
 
     @override
-    def create(self, rng: at.KeyArrayLike) -> "Pi0":
-        return Pi0(self, rngs=nnx.Rngs(rng))
+    def create(self, rng: at.KeyArrayLike) -> "Pi0-dex":
+        return Pi0Dex(self, rngs=nnx.Rngs(rng))
 
     @override
     def inputs_spec(self, *, batch_size: int = 1) -> tuple[_model.Observation, _model.Actions]:
@@ -141,8 +141,8 @@ class Pi0Config(_model.BaseModelConfig):
         return nnx.All(*filters)
 
 
-class Pi0(_model.BaseModel):
-    def __init__(self, config: Pi0Config, rngs: nnx.Rngs):
+class Pi0Dex(_model.BaseModel):
+    def __init__(self, config: Pi0DexConfig, rngs: nnx.Rngs):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         action_expert_config = _gemma.get_config(config.action_expert_variant)
@@ -170,6 +170,10 @@ class Pi0(_model.BaseModel):
         self.action_time_mlp_in = nnx.Linear(2 * action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_out_proj = nnx.Linear(action_expert_config.width, config.action_dim, rngs=rngs)
+
+        # custom projection layers for the 17 DoF hand actions
+        self.action_hand_in_proj = nnx.Linear(17, 15, rngs=rngs)
+        self.action_hand_out_proj = nnx.Linear(15, 17, rngs=rngs)
 
     @at.typecheck
     def embed_prefix(
@@ -221,6 +225,13 @@ class Pi0(_model.BaseModel):
 
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
         time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
+        
+        # process 17 DoF hand actions
+        hand_actions = noisy_actions[:, :, 6:23]
+        proj_hand_actions = self.action_hand_in_proj(hand_actions)
+        noisy_actions[:, :, 6] = proj_hand_actions[:, :, 0]
+        noisy_actions[:, :, 18:32] = proj_hand_actions[:, :, 1:15]
+
         # mix timestep + action information using an MLP
         action_tokens = self.action_in_proj(noisy_actions)
         time_tokens = einops.repeat(time_emb, "b emb -> b s emb", s=self.action_horizon)
@@ -262,6 +273,10 @@ class Pi0(_model.BaseModel):
             [prefix_tokens, suffix_tokens], mask=attn_mask, positions=positions
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+        
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        v_t[:, :, 6:23] = self.action_hand_out_proj(jnp.concatenate(v_t[:, :, 6], v_t[:, :, 18:32], axis=-1))
+        
 
         return jnp.mean(jnp.square(v_t - u_t), axis=-1)
 
@@ -313,6 +328,9 @@ class Pi0(_model.BaseModel):
             )
             assert prefix_out is None
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            # convert unique 15 DoF mapping of hand actions to 17 DoF
+            v_t[:, :, 6:23] = self.action_hand_out_proj(jnp.concatenate(v_t[:, :, 6], v_t[:, :, 18:32], axis=-1))
 
             return x_t + dt * v_t, time + dt
 
