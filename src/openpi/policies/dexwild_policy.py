@@ -63,8 +63,8 @@ class DexwildInputs(transforms.DataTransformFn):
         # and two wrist views (left and right). If your dataset does not have a particular type
         # of image, e.g. wrist images, you can comment it out here and replace it with zeros like we do for the
         # right wrist image below.
-        right_thumb_image = _parse_image(data["observation/right_pinky_image"])
-        # right_pinky_image = _parse_image(data["observation/right_thumb_image"])
+        right_thumb_image = _parse_image(data["observation/right_thumb_image"])
+        right_pinky_image = _parse_image(data["observation/right_pinky_image"])
 
         # Create inputs dict. Do not change the keys in the dict below.
         inputs = {
@@ -72,14 +72,14 @@ class DexwildInputs(transforms.DataTransformFn):
             "image": {
                 # Pad any non-existent images with zero-arrays of the appropriate shape.
                 "base_0_rgb": np.zeros_like(right_thumb_image),
-                "right_wrist_0_rgb": right_thumb_image,
-                "left_wrist_0_rgb": np.zeros_like(right_thumb_image),
+                "right_wrist_0_rgb": right_pinky_image,
+                "left_wrist_0_rgb": right_thumb_image,
             },
             "image_mask": {
                 "base_0_rgb": np.False_ if mask_padding else np.True_,
                 "right_wrist_0_rgb": np.True_,
                 # Mask any non-existent images with False (if ``mask_padding`` is True).
-                "left_wrist_0_rgb": np.False_ if mask_padding else np.True_,
+                "left_wrist_0_rgb": np.True_,
             },
         }
 

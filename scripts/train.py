@@ -48,7 +48,7 @@ def init_logging():
 
 def init_wandb(config: _config.TrainConfig, *, resuming: bool, log_code: bool = False, enabled: bool = True):
     if not enabled:
-        wandb.init(mode="disabled", tags=["Vader4"])
+        wandb.init(mode="disabled", tags=[config.machine])
         return
 
     ckpt_dir = config.checkpoint_dir
@@ -56,13 +56,13 @@ def init_wandb(config: _config.TrainConfig, *, resuming: bool, log_code: bool = 
         raise FileNotFoundError(f"Checkpoint directory {ckpt_dir} does not exist.")
     if resuming:
         run_id = (ckpt_dir / "wandb_id.txt").read_text().strip()
-        wandb.init(id=run_id, resume="must", project=config.project_name, tags=["Vader4"])
+        wandb.init(id=run_id, resume="must", project=config.project_name, tags=[config.machine])
     else:
         wandb.init(
             name=config.exp_name,
             config=dataclasses.asdict(config),
             project=config.project_name,
-            tags=["Vader4"],
+            tags=[config.machine],
         )
         (ckpt_dir / "wandb_id.txt").write_text(wandb.run.id)
 
