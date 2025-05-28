@@ -614,8 +614,8 @@ _CONFIGS = [
                 prompt_from_task=True,
             ),
         ),
-        # weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"), # For fine-tuning from scratch, use the base model checkpoint.
-        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi0_dexwild_lora/pi0-toy-lab-wrist-cams/29999/params"), # For fine-tuning from a custom checkpoint, use the path to that checkpoint.
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"), # For fine-tuning from scratch, use the base model checkpoint.
+        # weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi0_dexwild_lora/pi0-toy-lab-wrist-cams/29999/params"), # For fine-tuning from a custom checkpoint, use the path to that checkpoint.
         num_train_steps=60_000,
         # The freeze filter defines which parameters should be frozen during training.
         # We have a convenience function in the model config that returns the default freeze filter
