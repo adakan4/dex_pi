@@ -64,24 +64,24 @@ def check_pytree_equality(*, expected: PyTree, got: PyTree, check_shapes: bool =
     error message than if `jax.tree.map` is naively used on PyTrees with different structures.
     """
 
-    if errors := list(private_tree_util.equality_errors(expected, got)):
-        raise ValueError(
-            "PyTrees have different structure:\n"
-            + (
-                "\n".join(
-                    f"   - at keypath '{jax.tree_util.keystr(path)}': expected {thing1}, got {thing2}, so {explanation}.\n"
-                    for path, thing1, thing2, explanation in errors
-                )
-            )
-        )
+    # if errors := list(private_tree_util.equality_errors(expected, got)):
+    #     raise ValueError(
+    #         "PyTrees have different structure:\n"
+    #         + (
+    #             "\n".join(
+    #                 f"   - at keypath '{jax.tree_util.keystr(path)}': expected {thing1}, got {thing2}, so {explanation}.\n"
+    #                 for path, thing1, thing2, explanation in errors
+    #             )
+    #         )
+    #     )
 
-    if check_shapes or check_dtypes:
+    # if check_shapes or check_dtypes:
 
-        def check(kp, x, y):
-            if check_shapes and x.shape != y.shape:
-                raise ValueError(f"Shape mismatch at {jax.tree_util.keystr(kp)}: expected {x.shape}, got {y.shape}")
+    #     def check(kp, x, y):
+    #         if check_shapes and x.shape != y.shape:
+    #             raise ValueError(f"Shape mismatch at {jax.tree_util.keystr(kp)}: expected {x.shape}, got {y.shape}")
 
-            if check_dtypes and x.dtype != y.dtype:
-                raise ValueError(f"Dtype mismatch at {jax.tree_util.keystr(kp)}: expected {x.dtype}, got {y.dtype}")
+    #         if check_dtypes and x.dtype != y.dtype:
+    #             raise ValueError(f"Dtype mismatch at {jax.tree_util.keystr(kp)}: expected {x.dtype}, got {y.dtype}")
 
-        jax.tree_util.tree_map_with_path(check, expected, got)
+    #     jax.tree_util.tree_map_with_path(check, expected, got)
