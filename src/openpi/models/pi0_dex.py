@@ -226,12 +226,12 @@ class Pi0Dex(_model.BaseModel):
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
         time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
 
-        # process 17 DoF hand actions + map palm_fingers to gripper
-        hand_actions = noisy_actions[:, :, 6:22]
+        # process 17 DoF hand actions + map palm_thumb to gripper
+        hand_actions = jnp.concatenate([noisy_actions[:, :, 6:21], noisy_actions[:, :, 22:23]], axis=-1)
         proj_hand_actions = self.action_hand_in_proj(hand_actions)
         noisy_actions = jnp.concatenate([
             noisy_actions[:, :, 0:6], 
-            noisy_actions[:, :, 22:23], 
+            noisy_actions[:, :, 21:22], # palm_thumb to gripper
             noisy_actions[:, :, 23:32], 
             noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
             proj_hand_actions], axis=-1)
@@ -278,14 +278,13 @@ class Pi0Dex(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
         
-        jax.debug.print("V_T: {x}", x=v_t[0][0])
-
         # convert unique 15 DoF mapping of hand actions to 17 DoF
         out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
         v_t = jnp.concatenate([
             v_t[:, :, 0:6], 
-            out_proj_hand_actions, 
+            out_proj_hand_actions[:, :, 0:16],
             v_t[:, :, 6:7],
+            out_proj_hand_actions[:, :, 16:17],
             v_t[:, :, 7:16]], axis=-1)
 
 
@@ -342,12 +341,12 @@ class Pi0Dex(_model.BaseModel):
 
             # convert unique 15 DoF mapping of hand actions to 17 DoF
             out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
-            
             v_t = jnp.concatenate([
                 v_t[:, :, 0:6], 
-                out_proj_hand_actions, 
+                out_proj_hand_actions[:, :, 0:16],
                 v_t[:, :, 6:7],
-                v_t[:, :, 7:16]], axis=-1)    
+                out_proj_hand_actions[:, :, 16:17],
+                v_t[:, :, 7:16]], axis=-1)
 
             return x_t + dt * v_t, time + dt
 
