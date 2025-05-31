@@ -64,7 +64,7 @@ class DexwildInputs(transforms.DataTransformFn):
         # of image, e.g. wrist images, you can comment it out here and replace it with zeros like we do for the
         # right wrist image below.
         right_thumb_image = _parse_image(data["observation/right_pinky_image"])
-        # right_pinky_image = _parse_image(data["observation/right_thumb_image"])
+        right_pinky_image = _parse_image(data["observation/right_thumb_image"])
 
         # Create inputs dict. Do not change the keys in the dict below.
         inputs = {
