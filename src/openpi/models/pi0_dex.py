@@ -225,12 +225,16 @@ class Pi0Dex(_model.BaseModel):
 
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
         time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
-        
-        # process 17 DoF hand actions
+
+        # process 17 DoF hand actions + map palm_fingers to gripper
         hand_actions = noisy_actions[:, :, 6:22]
-        noisy_actions.at[:, :, 6].set(noisy_actions[:, :, 22])  # keep palm_fingers action as is
         proj_hand_actions = self.action_hand_in_proj(hand_actions)
-        noisy_actions.at[:, :, 18:32].set(proj_hand_actions)
+        noisy_actions = jnp.concatenate([
+            noisy_actions[:, :, 0:6], 
+            noisy_actions[:, :, 22:23], 
+            noisy_actions[:, :, 23:32], 
+            noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            proj_hand_actions], axis=-1)
 
         # mix timestep + action information using an MLP
         action_tokens = self.action_in_proj(noisy_actions)
@@ -274,9 +278,16 @@ class Pi0Dex(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
         
+        jax.debug.print("V_T: {x}", x=v_t[0][0])
+
         # convert unique 15 DoF mapping of hand actions to 17 DoF
-        v_t.at[:, :, 6:23].set(jnp.concatenate([self.action_hand_out_proj(v_t[:, :, 18:32]), v_t[:, :, 6:7]], axis=-1))
-        
+        out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
+        v_t = jnp.concatenate([
+            v_t[:, :, 0:6], 
+            out_proj_hand_actions, 
+            v_t[:, :, 6:7],
+            v_t[:, :, 7:16]], axis=-1)
+
 
         return jnp.mean(jnp.square(v_t - u_t), axis=-1)
 
@@ -330,8 +341,14 @@ class Pi0Dex(_model.BaseModel):
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
             # convert unique 15 DoF mapping of hand actions to 17 DoF
-            v_t.at[:, :, 6:23].set(jnp.concatenate([self.action_hand_out_proj(v_t[:, :, 18:32]), v_t[:, :, 6:7]], axis=-1))
+            out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
             
+            v_t = jnp.concatenate([
+                v_t[:, :, 0:6], 
+                out_proj_hand_actions, 
+                v_t[:, :, 6:7],
+                v_t[:, :, 7:16]], axis=-1)    
+
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
