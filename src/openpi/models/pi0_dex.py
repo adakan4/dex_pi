@@ -231,7 +231,7 @@ class Pi0Dex(_model.BaseModel):
         proj_hand_actions = self.action_hand_in_proj(hand_actions)
         noisy_actions = jnp.concatenate([
             noisy_actions[:, :, 0:6], 
-            noisy_actions[:, :, 22:23], 
+            noisy_actions[:, :, 22:23], # palm_fingers to gripper
             noisy_actions[:, :, 23:32], 
             noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
             proj_hand_actions], axis=-1)
@@ -278,8 +278,6 @@ class Pi0Dex(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
         
-        jax.debug.print("V_T: {x}", x=v_t[0][0])
-
         # convert unique 15 DoF mapping of hand actions to 17 DoF
         out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
         v_t = jnp.concatenate([
