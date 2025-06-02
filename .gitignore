@@ -1,6 +1,7 @@
 # Data directories.
 assets/
 checkpoints/
+dex_pi_checkpoints
 data/
 wandb/
 
