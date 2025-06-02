@@ -63,8 +63,8 @@ class DexwildInputs(transforms.DataTransformFn):
         # and two wrist views (left and right). If your dataset does not have a particular type
         # of image, e.g. wrist images, you can comment it out here and replace it with zeros like we do for the
         # right wrist image below.
-        right_thumb_image = _parse_image(data["observation/right_pinky_image"])
-        # right_pinky_image = _parse_image(data["observation/right_thumb_image"])
+        right_thumb_image = _parse_image(data["observation/right_thumb_image"])
+        right_pinky_image = _parse_image(data["observation/right_pinky_image"])
 
         # Create inputs dict. Do not change the keys in the dict below.
         inputs = {
