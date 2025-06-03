@@ -38,7 +38,7 @@ class DexCosineDecaySchedule(LRScheduleConfig):
 
     warmup_steps: int = 50
     peak_lr: float = 1.0e-3
-    decay_steps: int = 30_000
+    decay_steps: int = 60_000
     decay_lr: float = 7.5e-6
 
     def create(self) -> optax.Schedule:
