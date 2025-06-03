@@ -2877,8 +2877,8 @@ wheels = [
 
 [[package]]
 name = "optax"
-version = "0.2.4"
-source = { registry = "https://pypi.org/simple" }
+version = "0.2.5.dev0"
+source = { git = "https://github.com/google-deepmind/optax.git" }
 dependencies = [
     { name = "absl-py" },
     { name = "chex" },
@@ -2886,10 +2886,6 @@ dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
     { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/af/b5/f88a0d851547b2e6b2c7e7e6509ad66236b3e7019f1f095bb03dbaa61fa1/optax-0.2.4.tar.gz", hash = "sha256:4e05d3d5307e6dde4c319187ae36e6cd3a0c035d4ed25e9e992449a304f47336", size = 229717 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/24/28d0bb21600a78e46754947333ec9a297044af884d360092eb8561575fe9/optax-0.2.4-py3-none-any.whl", hash = "sha256:db35c04e50b52596662efb002334de08c2a0a74971e4da33f467e84fac08886a", size = 319212 },
 ]
 
 [[package]]

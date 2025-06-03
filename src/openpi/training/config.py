@@ -427,7 +427,10 @@ class TrainConfig:
     weight_loader: weight_loaders.WeightLoader = dataclasses.field(default_factory=weight_loaders.NoOpWeightLoader)
 
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
-    optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
+    fast_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.DexCosineDecaySchedule)
+    train_ed: bool = True
+    num_ed_train_steps: int = 100
+    optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.DexAdamW)
     ema_decay: float | None = 0.99
 
     # Specifies which weights should be frozen.

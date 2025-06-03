@@ -170,7 +170,6 @@ class Pi0Dex(_model.BaseModel):
         self.action_time_mlp_in = nnx.Linear(2 * action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_out_proj = nnx.Linear(action_expert_config.width, config.action_dim, rngs=rngs)
-
         # custom projection layers for the 17 DoF hand actions
         self.action_hand_in_proj = nnx.Linear(16, 14, rngs=rngs)
         self.action_hand_out_proj = nnx.Linear(14, 16, rngs=rngs)
@@ -217,7 +216,17 @@ class Pi0Dex(_model.BaseModel):
         ar_mask = []
         tokens = []
         # add a single state token
-        state_token = self.state_proj(obs.state)[:, None, :]
+
+        state = obs.state
+        hand_state = state[:, 6:22]
+        proj_hand_state = self.action_hand_in_proj(hand_state)
+        state = jnp.concatenate([
+            state[:, 0:6], 
+            state[:, 22:23], # palm_fingers to gripper
+            state[:, 23:32], 
+            state[:, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            proj_hand_state], axis=-1)
+        state_token = self.state_proj(state)[:, None, :]
         tokens.append(state_token)
         input_mask.append(jnp.ones((obs.state.shape[0], 1), dtype=jnp.bool_))
         # image/language inputs do not attend to state or actions
@@ -288,6 +297,19 @@ class Pi0Dex(_model.BaseModel):
 
 
         return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+
+    def compute_ed_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
+    ) -> at.Float[at.Array, "*b ah"]:
+        """Compute the encoder loss for the Pi0Dex model."""
+        # For Pi0Dex, we use the same loss as compute_loss.
+        state = observation.state
+        hand_state = state[:, 6:22]
+        encoded_state = self.action_hand_in_proj(hand_state)
+        
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        decoded_state = self.action_hand_out_proj(encoded_state)
+        return jnp.mean(jnp.square(decoded_state - hand_state))
 
     @override
     def sample_actions(
