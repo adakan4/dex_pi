@@ -87,7 +87,7 @@ def init_train_state(
     config: _config.TrainConfig, init_rng: at.KeyArrayLike, mesh: jax.sharding.Mesh, *, resume: bool
 ) -> tuple[training_utils.TrainState, Any]:
     tx = _optimizer.create_optimizer(config.optimizer, config.lr_schedule, config.fast_lr_schedule, weight_decay_mask=None)
-    ed_tx = _optimizer.create_ed_optimizer(config.ed_optimizer, config.ed_lr_schedule, weight_decay_mask=None)
+    vae_tx = _optimizer.create_vae_optimizer(config.vae_optimizer, config.vae_lr_schedule, weight_decay_mask=None)
     def init(rng: at.KeyArrayLike, partial_params: at.Params | None = None) -> training_utils.TrainState:
         rng, model_rng = jax.random.split(rng)
         # initialize the model (and its parameters).
@@ -107,13 +107,13 @@ def init_train_state(
 
         return training_utils.TrainState(
             step=0,
-            is_ed_step=config.train_ed,
+            is_vae_step=config.train_vae,
             params=params,
             model_def=nnx.graphdef(model),
             tx=tx,
-            ed_tx=ed_tx,
+            vae_tx=vae_tx,
             opt_state=tx.init(filtered_params.to_pure_dict()),
-            ed_opt_state=ed_tx.init(filtered_params.to_pure_dict()) if config.train_ed else None,
+            vae_opt_state=vae_tx.init(filtered_params.to_pure_dict()) if config.train_vae else None,
             ema_decay=config.ema_decay,
             ema_params=None if config.ema_decay is None else params,
         )
@@ -202,7 +202,7 @@ def train_step(
     return new_state, info
 
 @at.typecheck
-def ed_train_step(
+def vae_train_step(
     config: _config.TrainConfig,
     rng: at.KeyArrayLike,
     state: training_utils.TrainState,
@@ -216,7 +216,7 @@ def ed_train_step(
         model: _model.BaseModel, rng: at.KeyArrayLike, observation: _model.Observation
     ):
 
-        chunked_loss = model.compute_ed_loss(rng, observation, train=True)
+        chunked_loss = model.compute_vae_loss(rng, observation, train=True)
         return jnp.mean(chunked_loss)
 
     train_rng = jax.random.fold_in(rng, state.step)
@@ -228,7 +228,7 @@ def ed_train_step(
     
     params = state.params.filter(config.trainable_filter)
     
-    updates, new_ed_opt_state = state.ed_tx.update(grads.to_pure_dict(), state.ed_opt_state, params.to_pure_dict())
+    updates, new_vae_opt_state = state.vae_tx.update(grads.to_pure_dict(), state.vae_opt_state, params.to_pure_dict())
     params = state.params.filter(config.trainable_filter)
     params_dict = params.to_pure_dict()
     new_params_dict = optax.apply_updates(params_dict, updates)
@@ -238,7 +238,7 @@ def ed_train_step(
 
     new_params = nnx.state(model)
 
-    new_state = dataclasses.replace(state, step=state.step + 1, params=new_params, ed_opt_state=new_ed_opt_state)
+    new_state = dataclasses.replace(state, step=state.step + 1, params=new_params, vae_opt_state=new_vae_opt_state)
     
     if state.ema_decay is not None:
         new_state = dataclasses.replace(
@@ -315,24 +315,24 @@ def main(config: _config.TrainConfig):
     )
 
     start_step = int(train_state.step)
-    if config.train_ed:
-        ed_ptrain_step = jax.jit(
-            functools.partial(ed_train_step, config),
+    if config.train_vae:
+        vae_ptrain_step = jax.jit(
+            functools.partial(vae_train_step, config),
             in_shardings=(replicated_sharding, train_state_sharding, data_sharding),
             out_shardings=(train_state_sharding, replicated_sharding),
             donate_argnums=(1,),
         )
         pbar = tqdm.tqdm(
-            range(start_step, config.num_ed_train_steps),
+            range(start_step, config.num_vae_train_steps),
             initial=start_step,
-            total=config.num_ed_train_steps,
+            total=config.num_vae_train_steps,
             dynamic_ncols=True,
         )
 
         infos = []
         for step in pbar:
             with sharding.set_mesh(mesh):
-                train_state, info = ed_ptrain_step(train_rng, train_state, batch)
+                train_state, info = vae_ptrain_step(train_rng, train_state, batch)
             infos.append(info)
             if step % config.log_interval == 0:
                 stacked_infos = common_utils.stack_forest(infos)

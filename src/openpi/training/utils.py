@@ -14,12 +14,12 @@ from openpi.shared import array_typing as at
 @struct.dataclass(frozen=False)
 class TrainState:
     step: at.Int[at.ArrayLike, ""]
-    is_ed_step: at.Bool[at.ArrayLike, ""]
+    is_vae_step: at.Bool[at.ArrayLike, ""]
     params: nnx.State
     model_def: nnx.GraphDef[_model.BaseModel]
     opt_state: optax.OptState | None
-    ed_opt_state: optax.OptState | None
-    ed_tx: None | optax.GradientTransformation = struct.field(pytree_node=False)
+    vae_opt_state: optax.OptState | None
+    vae_tx: None | optax.GradientTransformation = struct.field(pytree_node=False)
     tx: None | optax.GradientTransformation = struct.field(pytree_node=False)
 
     ema_decay: float | None = struct.field(pytree_node=False)

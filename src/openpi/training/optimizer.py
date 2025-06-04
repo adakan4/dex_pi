@@ -33,7 +33,7 @@ class CosineDecaySchedule(LRScheduleConfig):
         )
 
 @dataclasses.dataclass(frozen=True)
-class EdCosineDecaySchedule(LRScheduleConfig):
+class VAECosineDecaySchedule(LRScheduleConfig):
     """Cosine decay schedule with warmup."""
 
     warmup_steps: int = 300
@@ -54,10 +54,10 @@ class EdCosineDecaySchedule(LRScheduleConfig):
 class DexCosineDecaySchedule(LRScheduleConfig):
     """Cosine decay schedule with warmup."""
 
-    warmup_steps: int = 1_000
-    peak_lr: float = 2.5e-5
+    warmup_steps: int = 2_000
+    peak_lr: float = 2.5e-8
     decay_steps: int = 60_000
-    decay_lr: float = 2.5e-6
+    decay_lr: float = 2.5e-8
 
     def create(self) -> optax.Schedule:
         return optax.warmup_cosine_decay_schedule(
@@ -196,7 +196,7 @@ def create_optimizer(
     fast_lr = fast_lr_schedule.create()
     return optimizer.create(lr, fast_lr, weight_decay_mask=weight_decay_mask)
 
-def create_ed_optimizer(
+def create_vae_optimizer(
     optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig | None = None, weight_decay_mask: at.PyTree | None = None
 ) -> optax.GradientTransformation:
     lr = lr_schedule.create()
