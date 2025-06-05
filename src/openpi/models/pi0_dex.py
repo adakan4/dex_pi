@@ -170,10 +170,10 @@ class Pi0Dex(_model.BaseModel):
         self.action_time_mlp_in = nnx.Linear(2 * action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_out_proj = nnx.Linear(action_expert_config.width, config.action_dim, rngs=rngs)
-
         # custom projection layers for the 17 DoF hand actions
-        self.action_hand_in_proj = nnx.Linear(16, 14, rngs=rngs)
-        self.action_hand_out_proj = nnx.Linear(14, 16, rngs=rngs)
+        self.action_hand_vae_mu = nnx.Linear(16, 14, rngs=rngs)
+        self.action_hand_vae_logvar = nnx.Linear(16, 14, rngs=rngs)
+        self.action_hand_vae_out = nnx.Linear(14, 16, rngs=rngs)
 
     @at.typecheck
     def embed_prefix(
@@ -217,7 +217,21 @@ class Pi0Dex(_model.BaseModel):
         ar_mask = []
         tokens = []
         # add a single state token
-        state_token = self.state_proj(obs.state)[:, None, :]
+
+        state = obs.state
+
+        hand_state = state[:, 6:22]
+        # VAE Encoder for hand_state -> encoded_hand_state (during full training only use mu as embedding)
+        encoded_hand_state = self.action_hand_vae_mu(hand_state)
+
+        state = jnp.concatenate([
+            state[:, 0:6], 
+            state[:, 22:23], # palm_fingers to gripper
+            state[:, 23:32], 
+            state[:, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            encoded_hand_state], axis=-1)
+        
+        state_token = self.state_proj(state)[:, None, :]
         tokens.append(state_token)
         input_mask.append(jnp.ones((obs.state.shape[0], 1), dtype=jnp.bool_))
         # image/language inputs do not attend to state or actions
@@ -226,15 +240,18 @@ class Pi0Dex(_model.BaseModel):
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
         time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
 
-        # process 17 DoF hand actions + map palm_thumb to gripper
-        hand_actions = jnp.concatenate([noisy_actions[:, :, 6:21], noisy_actions[:, :, 22:23]], axis=-1)
-        proj_hand_actions = self.action_hand_in_proj(hand_actions)
-        noisy_actions = jnp.concatenate([
-            noisy_actions[:, :, 0:6], 
-            noisy_actions[:, :, 21:22], # palm_thumb to gripper
-            noisy_actions[:, :, 23:32], 
-            noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
-            proj_hand_actions], axis=-1)
+        # # process 17 DoF hand actions + map palm_fingers to gripper
+        # hand_actions = noisy_actions[:, :, 6:22]
+        
+        # # VAE Encoder for hand_actions -> encoded_hand_actions (during full training only use mu as embedding)
+        # encoded_hand_actions = self.action_hand_vae_mu(hand_actions)
+
+        # noisy_actions = jnp.concatenate([
+        #     noisy_actions[:, :, 0:6], 
+        #     noisy_actions[:, :, 22:23], # palm_fingers to gripper
+        #     noisy_actions[:, :, 23:32], 
+        #     noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+        #     encoded_hand_actions], axis=-1)
 
         # mix timestep + action information using an MLP
         action_tokens = self.action_in_proj(noisy_actions)
@@ -278,17 +295,46 @@ class Pi0Dex(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
         
+        # v_t is trained to mimic noise - actions, so we need to transform it to equal just actions to pass though the vae
+        v_t = v_t - noise
+        v_t = -v_t
+
         # convert unique 15 DoF mapping of hand actions to 17 DoF
-        out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
+        decoded_hand_actions = self.action_hand_vae_out(v_t[:, :, 18:32])
         v_t = jnp.concatenate([
             v_t[:, :, 0:6], 
-            out_proj_hand_actions[:, :, 0:16],
+            decoded_hand_actions, 
             v_t[:, :, 6:7],
-            out_proj_hand_actions[:, :, 16:17],
             v_t[:, :, 7:16]], axis=-1)
 
+        # convert back to noise - actions
+        v_t = -v_t
+        v_t = v_t + noise
 
         return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+
+    def compute_vae_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
+    ) -> at.Float[at.Array, "*b ah"]:
+        """Compute the encoder loss for the Pi0Dex model."""
+        # For Pi0Dex, we use the same loss as compute_loss.
+        state = observation.state
+        hand_state = state[:, 6:22]
+        # VAE Encoder for hand_state -> encoded_hand_state
+        mu = self.action_hand_vae_mu(hand_state)
+        logvar = self.action_hand_vae_logvar(hand_state)
+        std = jnp.exp(0.5 * logvar)
+        eps = jax.random.normal(rng, mu.shape)
+        encoded_state = mu + std * eps
+        
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        decoded_state = self.action_hand_vae_out(encoded_state)
+        recon_loss = jnp.mean(jnp.square(decoded_state - hand_state))
+        kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
+        kl_beta = .1  # KL divergence weight
+        # jax.debug.print("Recon loss: {recon_loss}, KL divergence: {kl_div}", recon_loss=recon_loss, kl_div=kl_div)
+        total_loss = recon_loss + (kl_beta * kl_div)
+        return total_loss
 
     @override
     def sample_actions(
@@ -339,15 +385,6 @@ class Pi0Dex(_model.BaseModel):
             assert prefix_out is None
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-            # convert unique 15 DoF mapping of hand actions to 17 DoF
-            out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
-            v_t = jnp.concatenate([
-                v_t[:, :, 0:6], 
-                out_proj_hand_actions[:, :, 0:16],
-                v_t[:, :, 6:7],
-                out_proj_hand_actions[:, :, 16:17],
-                v_t[:, :, 7:16]], axis=-1)
-
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
@@ -356,4 +393,13 @@ class Pi0Dex(_model.BaseModel):
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        decoded_hand_actions = self.action_hand_vae_out(x_0[:, :, 18:32])
+        x_0 = jnp.concatenate([
+            x_0[:, :, 0:6], 
+            decoded_hand_actions, 
+            x_0[:, :, 6:7],
+            x_0[:, :, 7:16]], axis=-1)
+
         return x_0

@@ -427,7 +427,12 @@ class TrainConfig:
     weight_loader: weight_loaders.WeightLoader = dataclasses.field(default_factory=weight_loaders.NoOpWeightLoader)
 
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
-    optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
+    fast_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.DexCosineDecaySchedule)
+    vae_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.VAECosineDecaySchedule)
+    train_vae: bool = True
+    num_vae_train_steps: int = 7_000
+    vae_optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
+    optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.DexAdamW)
     ema_decay: float | None = 0.99
 
     # Specifies which weights should be frozen.
@@ -442,7 +447,7 @@ class TrainConfig:
     checkpoint_base_dir: str = "./checkpoints"
 
     # Random seed that will be used by random generators during training.
-    seed: int = 42
+    seed: int = 41
     # Global batch size.
     batch_size: int = 16
     # Number of workers to use for the data loader. Increasing this number will speed up data loading but
