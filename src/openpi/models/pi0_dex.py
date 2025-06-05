@@ -385,15 +385,6 @@ class Pi0Dex(_model.BaseModel):
             assert prefix_out is None
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-            # convert unique 15 DoF mapping of hand actions to 17 DoF
-            out_proj_hand_actions = self.action_hand_out_proj(v_t[:, :, 18:32])
-            
-            v_t = jnp.concatenate([
-                v_t[:, :, 0:6], 
-                out_proj_hand_actions, 
-                v_t[:, :, 6:7],
-                v_t[:, :, 7:16]], axis=-1)    
-
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
@@ -402,4 +393,13 @@ class Pi0Dex(_model.BaseModel):
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        decoded_hand_actions = self.action_hand_vae_out(x_0[:, :, 18:32])
+        x_0 = jnp.concatenate([
+            x_0[:, :, 0:6], 
+            decoded_hand_actions, 
+            x_0[:, :, 6:7],
+            x_0[:, :, 7:16]], axis=-1)
+
         return x_0
