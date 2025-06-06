@@ -331,7 +331,7 @@ class Pi0Dex(_model.BaseModel):
         decoded_state = self.action_hand_vae_out(encoded_state)
         recon_loss = jnp.mean(jnp.square(decoded_state - hand_state))
         kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
-        kl_beta = .1  # KL divergence weight
+        kl_beta = .2  # KL divergence weight
         # jax.debug.print("Recon loss: {recon_loss}, KL divergence: {kl_div}", recon_loss=recon_loss, kl_div=kl_div)
         total_loss = recon_loss + (kl_beta * kl_div)
         return total_loss
