@@ -342,7 +342,7 @@ class Pi0Dex(_model.BaseModel):
         rng: at.KeyArrayLike,
         observation: _model.Observation,
         *,
-        num_steps: int | at.Int[at.Array, ""] = 20,
+        num_steps: int | at.Int[at.Array, ""] = 10,
     ) -> _model.Actions:
         jax.debug.print("Sampling actions with num_steps: {num_steps}", num_steps=num_steps)
         observation = _model.preprocess_observation(None, observation, train=False)
