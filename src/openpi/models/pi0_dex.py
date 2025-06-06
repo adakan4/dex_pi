@@ -269,15 +269,15 @@ class Pi0Dex(_model.BaseModel):
         time_expanded = time[..., None, None]
 
         # Create a transformed version of the actions that is used as the input for the diffusion process.
-        hand_actions = actions[:, 6:22]
+        hand_actions = actions[:, :, 6:22]
         # VAE Encoder for hand_state -> encoded_hand_state (during full training only use mu as embedding)
         encoded_hand_actions = self.action_hand_vae_mu(hand_actions)
 
         transformed_actions = jnp.concatenate([
-            actions[:, 0:6], 
-            actions[:, 22:23], # palm_fingers to gripper
-            actions[:, 23:32], 
-            actions[:, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            actions[:, :, 0:6], 
+            actions[:, :, 22:23], # palm_fingers to gripper
+            actions[:, :, 23:32], 
+            actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
             encoded_hand_actions], axis=-1)
 
         x_t = time_expanded * noise + (1 - time_expanded) * transformed_actions
