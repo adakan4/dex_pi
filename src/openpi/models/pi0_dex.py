@@ -311,7 +311,7 @@ class Pi0Dex(_model.BaseModel):
         v_t = -v_t
         v_t = v_t + noise
         print()
-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        return jnp.mean(jnp.square(v_t[:, :, 0:23] - u_t[:, :, 0:23]), axis=-1)
 
     def compute_vae_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
