@@ -430,7 +430,7 @@ class TrainConfig:
     fast_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.DexCosineDecaySchedule)
     vae_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.VAECosineDecaySchedule)
     train_vae: bool = True
-    num_vae_train_steps: int = 7_000
+    num_vae_train_steps: int = 10_000
     vae_optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
     optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.DexAdamW)
     ema_decay: float | None = 0.99

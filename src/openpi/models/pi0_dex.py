@@ -240,19 +240,6 @@ class Pi0Dex(_model.BaseModel):
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
         time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
 
-        # # process 17 DoF hand actions + map palm_fingers to gripper
-        # hand_actions = noisy_actions[:, :, 6:22]
-        
-        # # VAE Encoder for hand_actions -> encoded_hand_actions (during full training only use mu as embedding)
-        # encoded_hand_actions = self.action_hand_vae_mu(hand_actions)
-
-        # noisy_actions = jnp.concatenate([
-        #     noisy_actions[:, :, 0:6], 
-        #     noisy_actions[:, :, 22:23], # palm_fingers to gripper
-        #     noisy_actions[:, :, 23:32], 
-        #     noisy_actions[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
-        #     encoded_hand_actions], axis=-1)
-
         # mix timestep + action information using an MLP
         action_tokens = self.action_in_proj(noisy_actions)
         time_tokens = einops.repeat(time_emb, "b emb -> b s emb", s=self.action_horizon)
@@ -280,7 +267,20 @@ class Pi0Dex(_model.BaseModel):
         noise = jax.random.normal(noise_rng, actions.shape)
         time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
         time_expanded = time[..., None, None]
-        x_t = time_expanded * noise + (1 - time_expanded) * actions
+
+        # Create a transformed version of the actions that is used as the input for the diffusion process.
+        hand_actions = actions[:, 6:22]
+        # VAE Encoder for hand_state -> encoded_hand_state (during full training only use mu as embedding)
+        encoded_hand_actions = self.action_hand_vae_mu(hand_actions)
+
+        transformed_actions = jnp.concatenate([
+            actions[:, 0:6], 
+            actions[:, 22:23], # palm_fingers to gripper
+            actions[:, 23:32], 
+            actions[:, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            encoded_hand_actions], axis=-1)
+
+        x_t = time_expanded * noise + (1 - time_expanded) * transformed_actions
         u_t = noise - actions
 
         # one big forward pass of prefix + suffix at once
@@ -310,8 +310,8 @@ class Pi0Dex(_model.BaseModel):
         # convert back to noise - actions
         v_t = -v_t
         v_t = v_t + noise
-
-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        print()
+        return jnp.mean(jnp.square(v_t[:, :, 0:23] - u_t[:, :, 0:23]), axis=-1)
 
     def compute_vae_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
@@ -331,7 +331,7 @@ class Pi0Dex(_model.BaseModel):
         decoded_state = self.action_hand_vae_out(encoded_state)
         recon_loss = jnp.mean(jnp.square(decoded_state - hand_state))
         kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
-        kl_beta = .1  # KL divergence weight
+        kl_beta = .2  # KL divergence weight
         # jax.debug.print("Recon loss: {recon_loss}, KL divergence: {kl_div}", recon_loss=recon_loss, kl_div=kl_div)
         total_loss = recon_loss + (kl_beta * kl_div)
         return total_loss
@@ -344,6 +344,7 @@ class Pi0Dex(_model.BaseModel):
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
     ) -> _model.Actions:
+        jax.debug.print("Sampling actions with num_steps: {num_steps}", num_steps=num_steps)
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -394,12 +395,15 @@ class Pi0Dex(_model.BaseModel):
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         
+        jax.debug.print("X_0 shape: {x_0_shape}", x_0_shape=x_0.shape)
+        jax.debug.print("X_0: {x_0}", x_0=x_0[0, 0, 0:23])
         # convert unique 15 DoF mapping of hand actions to 17 DoF
         decoded_hand_actions = self.action_hand_vae_out(x_0[:, :, 18:32])
-        x_0 = jnp.concatenate([
+        final_x_0 = jnp.concatenate([
             x_0[:, :, 0:6], 
             decoded_hand_actions, 
             x_0[:, :, 6:7],
             x_0[:, :, 7:16]], axis=-1)
 
-        return x_0
+        jax.debug.print("Final X_0: {x_0}", x_0=final_x_0[0, 0, 0:23])
+        return final_x_0

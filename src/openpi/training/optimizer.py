@@ -54,10 +54,10 @@ class VAECosineDecaySchedule(LRScheduleConfig):
 class DexCosineDecaySchedule(LRScheduleConfig):
     """Cosine decay schedule with warmup."""
 
-    warmup_steps: int = 2_000
-    peak_lr: float = 2.5e-8
+    warmup_steps: int = 8_000
+    peak_lr: float = 2.5e-5
     decay_steps: int = 60_000
-    decay_lr: float = 2.5e-8
+    decay_lr: float = 2.5e-6
 
     def create(self) -> optax.Schedule:
         return optax.warmup_cosine_decay_schedule(
@@ -139,7 +139,6 @@ class DexAdamW(OptimizerConfig):
 
         def map_nested_fn(fn):
             def map_fn(nested_dict, is_hand: bool = False):
-                # jax.debug.print("PARTITIONING: {nested_dict}", nested_dict=nested_dict)
                 output = {}
                 for k, v in nested_dict.items():
                     if isinstance(v, dict):
