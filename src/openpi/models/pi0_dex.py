@@ -270,6 +270,7 @@ class Pi0Dex(_model.BaseModel):
 
         # Create a transformed version of the actions that is used as the input for the diffusion process.
         hand_actions = actions[:, :, 6:22]
+        
         # VAE Encoder for hand_state -> encoded_hand_state (during full training only use mu as embedding)
         encoded_hand_actions = self.action_hand_vae_mu(hand_actions)
 
@@ -281,7 +282,7 @@ class Pi0Dex(_model.BaseModel):
             encoded_hand_actions], axis=-1)
 
         x_t = time_expanded * noise + (1 - time_expanded) * transformed_actions
-        u_t = noise - actions
+        u_t = noise - transformed_actions
 
         # one big forward pass of prefix + suffix at once
         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
@@ -295,22 +296,27 @@ class Pi0Dex(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
         
+        # Ignore unused action dimensions in the loss.
+        loss_v_t = jnp.concatenate([v_t[:, :, 0:7], v_t[:, :, 18:32]], axis=-1)
+        loss_u_t = jnp.concatenate([u_t[:, :, 0:7], u_t[:, :, 18:32]], axis=-1)
+        # Flow matching loss is in the encoded action space
+        flow_loss = jnp.mean(jnp.square(loss_v_t - loss_u_t), axis=-1)
+        
         # v_t is trained to mimic noise - actions, so we need to transform it to equal just actions to pass though the vae
-        v_t = v_t - noise
-        v_t = -v_t
+        a_t = noise - v_t
 
         # convert unique 15 DoF mapping of hand actions to 17 DoF
-        decoded_hand_actions = self.action_hand_vae_out(v_t[:, :, 18:32])
-        v_t = jnp.concatenate([
-            v_t[:, :, 0:6], 
+        decoded_hand_actions = self.action_hand_vae_out(a_t[:, :, 18:32])
+        a_t = jnp.concatenate([
+            a_t[:, :, 0:6], 
             decoded_hand_actions, 
-            v_t[:, :, 6:7],
-            v_t[:, :, 7:16]], axis=-1)
+            a_t[:, :, 6:7],
+            a_t[:, :, 7:16]], axis=-1)
+        
+        # Reconstruction loss is in the original action space
+        recon_loss = jnp.mean(jnp.square((a_t[:, :, 0:23] - actions[:, :, 0:23])), axis=-1)
 
-        # convert back to noise - actions
-        v_t = -v_t
-        v_t = v_t + noise
-        return jnp.mean(jnp.square(v_t[:, :, 0:23] - u_t[:, :, 0:23]), axis=-1)
+        return (.5 * flow_loss) + (.5 * recon_loss)
 
     def compute_vae_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
@@ -331,7 +337,6 @@ class Pi0Dex(_model.BaseModel):
         recon_loss = jnp.mean(jnp.square(decoded_state - hand_state))
         kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
         kl_beta = .2  # KL divergence weight
-        # jax.debug.print("Recon loss: {recon_loss}, KL divergence: {kl_div}", recon_loss=recon_loss, kl_div=kl_div)
         total_loss = recon_loss + (kl_beta * kl_div)
         return total_loss
 
