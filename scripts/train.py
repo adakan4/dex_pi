@@ -86,8 +86,8 @@ def _load_weights_and_validate(loader: _weight_loaders.WeightLoader, params_shap
 def init_train_state(
     config: _config.TrainConfig, init_rng: at.KeyArrayLike, mesh: jax.sharding.Mesh, *, resume: bool
 ) -> tuple[training_utils.TrainState, Any]:
-    tx = _optimizer.create_optimizer(config.optimizer, config.lr_schedule, config.fast_lr_schedule, weight_decay_mask=None)
-    vae_tx = _optimizer.create_vae_optimizer(config.vae_optimizer, config.vae_lr_schedule, weight_decay_mask=None)
+    tx = _optimizer.create_optimizer(config.optimizer, config.lr_schedule, config.vae_finetune_lr_schedule, weight_decay_mask=None)
+    vae_tx = _optimizer.create_vae_optimizer(config.vae_optimizer, config.vae_pretrain_lr_schedule, weight_decay_mask=None)
     def init(rng: at.KeyArrayLike, partial_params: at.Params | None = None) -> training_utils.TrainState:
         rng, model_rng = jax.random.split(rng)
         # initialize the model (and its parameters).

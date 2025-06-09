@@ -133,7 +133,7 @@ class DexAdamW(OptimizerConfig):
     def create(
         self,
         lr: optax.ScalarOrSchedule,
-        fast_lr: optax.ScalarOrSchedule,
+        vae_lr: optax.ScalarOrSchedule,
         weight_decay_mask: at.PyTree | None = None,
     ) -> optax.GradientTransformation:
 
@@ -153,21 +153,21 @@ class DexAdamW(OptimizerConfig):
 
         def assign_learning_rate_label(param_name: str, param_value, is_hand) -> str:
             if "action_hand" in param_name or is_hand:
-                return "fast"
+                return "vae"
             return "base"
 
-        # Label function that assigns "action_hand" params a "fast" tag
+        # Label function that assigns "action_hand" params a "vae" tag
         partition_fn = map_nested_fn(assign_learning_rate_label)
 
         base_tx = optax.adamw(
             lr, b1=self.b1, b2=self.b2, eps=self.eps, weight_decay=self.weight_decay, mask=weight_decay_mask
         )
 
-        fast_tx = optax.adamw(
-            fast_lr, b1=self.b1, b2=self.b2, eps=self.eps, weight_decay=self.weight_decay, mask=weight_decay_mask
+        vae_tx = optax.adamw(
+            vae_lr, b1=self.b1, b2=self.b2, eps=self.eps, weight_decay=self.weight_decay, mask=weight_decay_mask
         )
 
-        tx = optax.partition({'base': base_tx, 'fast': fast_tx}, partition_fn)
+        tx = optax.partition({'base': base_tx, 'vae': vae_tx}, partition_fn)
         return optax.chain(optax.clip_by_global_norm(self.clip_gradient_norm), tx)
 
 
@@ -189,11 +189,11 @@ class SGD(OptimizerConfig):
 
 
 def create_optimizer(
-    optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig, fast_lr_schedule: LRScheduleConfig | None = None, weight_decay_mask: at.PyTree | None = None
+    optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig, vae_lr_schedule: LRScheduleConfig | None = None, weight_decay_mask: at.PyTree | None = None
 ) -> optax.GradientTransformation:
     lr = lr_schedule.create()
-    fast_lr = fast_lr_schedule.create()
-    return optimizer.create(lr, fast_lr, weight_decay_mask=weight_decay_mask)
+    vae_lr = vae_lr_schedule.create()
+    return optimizer.create(lr, vae_lr, weight_decay_mask=weight_decay_mask)
 
 def create_vae_optimizer(
     optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig | None = None, weight_decay_mask: at.PyTree | None = None

@@ -207,60 +207,6 @@ class SimpleDataConfig(DataConfigFactory):
             use_quantile_norm=model_config.model_type == ModelType.PI0_FAST,
         )
 
-
-@dataclasses.dataclass(frozen=True)
-class LeRobotAlohaDataConfig(DataConfigFactory):
-    # If true, will convert joint dimensions to deltas with respect to the current state before passing to the model.
-    # Gripper dimensions will remain in absolute values.
-    use_delta_joint_actions: bool = True
-    # If provided, will be injected into the input data if the "prompt" key is not present.
-    default_prompt: str | None = None
-    # If true, this will convert the joint and gripper values from the standard Aloha space to
-    # the space used by the pi internal runtime which was used to train the base model. People who
-    # use standard Aloha data should set this to true.
-    adapt_to_pi: bool = True
-
-    # Repack transforms.
-    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
-        default=_transforms.Group(
-            inputs=[
-                _transforms.RepackTransform(
-                    {
-                        "images": {"cam_high": "observation.images.top"},
-                        "state": "observation.state",
-                        "actions": "action",
-                    }
-                )
-            ]
-        )
-    )
-    # Action keys that will be used to read the action sequence from the dataset.
-    action_sequence_keys: Sequence[str] = ("action",)
-
-    @override
-    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
-        data_transforms = _transforms.Group(
-            inputs=[aloha_policy.AlohaInputs(action_dim=model_config.action_dim, adapt_to_pi=self.adapt_to_pi)],
-            outputs=[aloha_policy.AlohaOutputs(adapt_to_pi=self.adapt_to_pi)],
-        )
-        if self.use_delta_joint_actions:
-            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1)
-            data_transforms = data_transforms.push(
-                inputs=[_transforms.DeltaActions(delta_action_mask)],
-                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
-            )
-
-        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
-
-        return dataclasses.replace(
-            self.create_base_config(assets_dirs),
-            repack_transforms=self.repack_transforms,
-            data_transforms=data_transforms,
-            model_transforms=model_transforms,
-            action_sequence_keys=self.action_sequence_keys,
-        )
-
-
 @dataclasses.dataclass(frozen=True)
 class LeRobotLiberoDataConfig(DataConfigFactory):
     """
@@ -427,8 +373,8 @@ class TrainConfig:
     weight_loader: weight_loaders.WeightLoader = dataclasses.field(default_factory=weight_loaders.NoOpWeightLoader)
 
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
-    fast_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.DexCosineDecaySchedule)
-    vae_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.VAECosineDecaySchedule)
+    vae_finetune_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.DexCosineDecaySchedule)
+    vae_pretrain_lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.VAECosineDecaySchedule)
     train_vae: bool = True
     num_vae_train_steps: int = 10_000
     vae_optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
@@ -528,37 +474,6 @@ _CONFIGS = [
         data=LeRobotAlohaDataConfig(
             assets=AssetsConfig(asset_id="trossen"),
             default_prompt="open the tupperware and put the food on the plate",
-        ),
-    ),
-    #
-    # Inference DROID configs.
-    #
-    TrainConfig(
-        name="pi0_droid",
-        model=pi0.Pi0Config(action_horizon=10),
-        data=SimpleDataConfig(
-            assets=AssetsConfig(asset_id="droid"),
-            data_transforms=lambda model: _transforms.Group(
-                inputs=[droid_policy.DroidInputs(action_dim=model.action_dim)],
-                outputs=[droid_policy.DroidOutputs()],
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-    ),
-    TrainConfig(
-        name="pi0_fast_droid",
-        model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=10),
-        data=SimpleDataConfig(
-            assets=AssetsConfig(asset_id="droid"),
-            data_transforms=lambda model: _transforms.Group(
-                inputs=[droid_policy.DroidInputs(action_dim=model.action_dim, model_type=ModelType.PI0_FAST)],
-                outputs=[droid_policy.DroidOutputs()],
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
         ),
     ),
     #

@@ -321,23 +321,23 @@ class Pi0Dex(_model.BaseModel):
     def compute_vae_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
     ) -> at.Float[at.Array, "*b ah"]:
-        """Compute the encoder loss for the Pi0Dex model."""
+        # This VAE module is functioning as a regular encoder right now.
         # For Pi0Dex, we use the same loss as compute_loss.
         state = observation.state
         hand_state = state[:, 6:22]
         # VAE Encoder for hand_state -> encoded_hand_state
         mu = self.action_hand_vae_mu(hand_state)
-        logvar = self.action_hand_vae_logvar(hand_state)
-        std = jnp.exp(0.5 * logvar)
-        eps = jax.random.normal(rng, mu.shape)
-        encoded_state = mu + std * eps
+        # logvar = self.action_hand_vae_logvar(hand_state)
+        # std = jnp.exp(0.5 * logvar)
+        # eps = jax.random.normal(rng, mu.shape)
+        encoded_state = mu
         
         # convert unique 15 DoF mapping of hand actions to 17 DoF
         decoded_state = self.action_hand_vae_out(encoded_state)
         recon_loss = jnp.mean(jnp.square(decoded_state - hand_state))
-        kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
-        kl_beta = .2  # KL divergence weight
-        total_loss = recon_loss + (kl_beta * kl_div)
+        # kl_div = -0.5 * jnp.mean(1 + logvar - mu**2 - jnp.exp(logvar))
+        # kl_beta = 0  # KL divergence weight
+        total_loss = recon_loss
         return total_loss
 
     @override
