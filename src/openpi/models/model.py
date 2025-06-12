@@ -270,6 +270,8 @@ class BaseModel(nnx.Module, abc.ABC):
     @abc.abstractmethod
     def sample_actions(self, rng: at.KeyArrayLike, observation: Observation) -> Actions: ...
 
+    def sample_rtc_actions(self, rng: at.KeyArrayLike, observation: Observation, prev_action_chunk: jax.Array, inference_delay: int) -> Actions: ...
+
 
 def restore_params(
     params_path: pathlib.Path | str,

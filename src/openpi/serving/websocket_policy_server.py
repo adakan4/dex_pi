@@ -48,8 +48,9 @@ class WebsocketPolicyServer:
 
         while True:
             try:
-                obs = msgpack_numpy.unpackb(await websocket.recv())
-                action = self._policy.infer(obs)
+                data = msgpack_numpy.unpackb(await websocket.recv())
+                obs, past_action_chunk, inference_delay = data
+                action = self._policy.infer(obs, past_action_chunk, inference_delay)
                 await websocket.send(packer.pack(action))
             except websockets.ConnectionClosed:
                 logging.info(f"Connection from {websocket.remote_address} closed")

@@ -176,6 +176,40 @@ class Pi0Dex(_model.BaseModel):
         self.action_hand_vae_out = nnx.Linear(14, 16, rngs=rngs)
 
     @at.typecheck
+    def get_prefix_weights(self, start: jax.Array | int, end: jax.Array | int, total: int, schedule: str) -> jax.Array:
+        """With start=2, end=6, total=10, the output will be:
+        1  1  4/5 3/5 2/5 1/5 0  0  0  0
+            ^              ^
+            start           end
+        `start` (inclusive) is where the chunk starts being allowed to change. `end` (exclusive) is where the chunk stops
+        paying attention to the prefix. if start == 0, then the entire chunk is allowed to change. if end == total, then the
+        entire prefix is attended to.
+
+        `end` takes precedence over `start` in the sense that, if `end < start`, then `start` is pushed down to `end`. Thus,
+        if `end` is 0, then the entire prefix will always be ignored.
+        """
+
+        # Ensure start and end are JAX arrays for consistent operations within the JIT
+        # This handles cases where they might still be passed as Python ints from elsewhere
+        # within the JIT scope.
+        start_jnp = jnp.asarray(start, dtype=jnp.int32)
+        end_jnp = jnp.asarray(end, dtype=jnp.int32)
+        
+        start_clamped = jnp.minimum(start_jnp, end_jnp)
+        if schedule == "ones":
+            w = jnp.ones(total)
+        elif schedule == "zeros":
+            w = (jnp.arange(total) < start).astype(jnp.float32)
+        elif schedule == "linear" or schedule == "exp":
+            w = jnp.clip((start_clamped - 1 - jnp.arange(total)) / (end_jnp - start_clamped + 1) + 1, 0, 1)
+            if schedule == "exp":
+                w = w * jnp.expm1(w) / (jnp.e - 1)
+        else:
+            raise ValueError(f"Invalid schedule: {schedule}")
+        return jnp.where(jnp.arange(total) >= end, 0, w)
+    
+    
+    @at.typecheck
     def embed_prefix(
         self, obs: _model.Observation
     ) -> tuple[at.Float[at.Array, "b s emb"], at.Bool[at.Array, "b s"], at.Bool[at.Array, " s"]]:
@@ -341,6 +375,131 @@ class Pi0Dex(_model.BaseModel):
         return total_loss
 
     @override
+    def sample_rtc_actions(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        prev_action_chunk: jax.Array, # [batch, horizon, action_dim]
+        prefix_attention_horizon: jax.Array,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+    ) -> _model.Actions:
+        jax.debug.print("Sampling rtc actions with num_steps: {num_steps}", num_steps=num_steps)
+        # jax.debug.print("prev action chunk: {prev_action_chunk}", prev_action_chunk=prev_action_chunk)
+        observation = _model.preprocess_observation(None, observation, train=False)
+        
+        # convert prev action chunk to encoded format
+        prev_hand_actions = prev_action_chunk[:, :, 6:22]
+        
+        # VAE Encoder for hand_state -> encoded_hand_state (during full training only use mu as embedding)
+        encoded_hand_actions = self.action_hand_vae_mu(prev_hand_actions)
+
+        prev_action_chunk = jnp.concatenate([
+            prev_action_chunk[:, :, 0:6], 
+            prev_action_chunk[:, :, 22:23], # palm_fingers to gripper
+            prev_action_chunk[:, :, 23:32], 
+            prev_action_chunk[:, :, 23:25], # duplicate some of the filler because we have 15 DoF hand actions
+            encoded_hand_actions], axis=-1)
+        
+        # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
+        # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
+        dt = -1.0 / num_steps
+        batch_size = observation.state.shape[0]
+        noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        # first fill KV cache with a forward pass of the prefix
+        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+        positions = jnp.cumsum(prefix_mask, axis=1) - 1
+        _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+        
+        # RTC parameters, hardcoded for now
+        inference_delay = 8 # Number of steps that inference currently takes when running at 20 Hz
+        prefix_attention_schedule = "linear"
+        max_guidance_weight = 5.0 # Constant taken from the RTC codebase
+        action_chunk_size = 50
+        # execute_horizon = jnp.asarray(action_chunk_size, dtype=jnp.int32) - jnp.asarray(inference_delay[0], dtype=jnp.int32)
+
+        # shift previous action chunk to the left to align with the next action chunk
+        # prev_action_chunk = jnp.concatenate(
+        #             [
+        #                 jax.lax.slice(prev_action_chunk, (0, action_chunk_size-inference_delay[0], 0), (1, action_chunk_size, self.action_dim)),
+        #                 jnp.zeros((1, 50-inference_delay[0], self.action_dim)),
+        #             ],
+        #             axis=1,
+        #         )
+
+        def step(carry):
+            x_t, time = carry
+            
+            def pinv_corrected_velocity(x_t, y, t): # "t" comes from the RTC codebase and uses the PI0 convention where t=0 is noise and t=1 is the target distribution
+
+                def denoising_step(x_t):
+                    suffix_tokens, suffix_mask, suffix_ar_mask = self.embed_suffix(
+                        observation, x_t, jnp.broadcast_to(time, batch_size)
+                    )
+                    # `suffix_attn_mask` is shape (b, suffix_len, suffix_len) indicating how the suffix tokens can attend to each
+                    # other
+                    suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+                    # `prefix_attn_mask` is shape (b, suffix_len, prefix_len) indicating how the suffix tokens can attend to the
+                    # prefix tokens
+                    prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+                    # `combined_mask` is shape (b, suffix_len, prefix_len + suffix_len) indicating how the suffix tokens (which
+                    # generate the queries) can attend to the full prefix + suffix sequence (which generates the keys and values)
+                    full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
+                    assert full_attn_mask.shape == (
+                        batch_size,
+                        suffix_tokens.shape[1],
+                        prefix_tokens.shape[1] + suffix_tokens.shape[1],
+                    )
+                    # `positions` is shape (b, suffix_len) indicating the positions of the suffix tokens
+                    positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
+
+                    (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+                        [None, suffix_tokens], mask=full_attn_mask, positions=positions, kv_cache=kv_cache
+                    )
+                    assert prefix_out is None
+                    v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+                    
+                    return x_t + time * v_t, v_t
+
+                x_1, vjp_fun, v_t = jax.vjp(denoising_step, x_t, has_aux=True)
+                weights = self.get_prefix_weights(
+                    inference_delay, prefix_attention_horizon[0], action_chunk_size, prefix_attention_schedule
+                )
+                error = (y - x_1) * weights[:, None]
+                pinv_correction = vjp_fun(error)[0]
+                # constants from paper
+                inv_r2 = (t**2 + (1 - t) ** 2) / ((1 - t) ** 2)
+                c = jnp.nan_to_num((1 - t) / t, posinf=max_guidance_weight)
+                guidance_weight = jnp.minimum(c * inv_r2, max_guidance_weight)
+                return v_t - guidance_weight * pinv_correction
+                # return v_t
+            
+            v_t = pinv_corrected_velocity(x_t, prev_action_chunk, (1 - time))
+            return x_t + dt * v_t, time + dt
+
+        def cond(carry):
+            x_t, time = carry
+            # robust to floating-point error
+            return time >= -dt / 2
+
+        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        
+        # jax.debug.print("X_0 shape: {x_0_shape}", x_0_shape=x_0.shape)
+        # jax.debug.print("X_0: {x_0}", x_0=x_0[0, 0, 0:23])
+        # convert unique 15 DoF mapping of hand actions to 17 DoF
+        decoded_hand_actions = self.action_hand_vae_out(x_0[:, :, 18:32])
+        final_x_0 = jnp.concatenate([
+            x_0[:, :, 0:6], 
+            decoded_hand_actions, 
+            x_0[:, :, 6:7],
+            x_0[:, :, 7:16]], axis=-1)
+
+        # jax.debug.print("Final X_0: {x_0}", x_0=final_x_0[0, 0, 0:23])
+        return final_x_0
+
+    @override
     def sample_actions(
         self,
         rng: at.KeyArrayLike,
@@ -399,8 +558,8 @@ class Pi0Dex(_model.BaseModel):
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         
-        jax.debug.print("X_0 shape: {x_0_shape}", x_0_shape=x_0.shape)
-        jax.debug.print("X_0: {x_0}", x_0=x_0[0, 0, 0:23])
+        # jax.debug.print("X_0 shape: {x_0_shape}", x_0_shape=x_0.shape)
+        # jax.debug.print("X_0: {x_0}", x_0=x_0[0, 0, 0:23])
         # convert unique 15 DoF mapping of hand actions to 17 DoF
         decoded_hand_actions = self.action_hand_vae_out(x_0[:, :, 18:32])
         final_x_0 = jnp.concatenate([
@@ -409,5 +568,5 @@ class Pi0Dex(_model.BaseModel):
             x_0[:, :, 6:7],
             x_0[:, :, 7:16]], axis=-1)
 
-        jax.debug.print("Final X_0: {x_0}", x_0=final_x_0[0, 0, 0:23])
+        # jax.debug.print("Final X_0: {x_0}", x_0=final_x_0[0, 0, 0:23])
         return final_x_0

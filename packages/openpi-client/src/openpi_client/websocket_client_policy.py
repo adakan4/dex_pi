@@ -35,8 +35,9 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
                 time.sleep(5)
 
     @override
-    def infer(self, obs: Dict) -> Dict:  # noqa: UP006
-        data = self._packer.pack(obs)
+    def infer(self, obs: Dict, past_action_chunk, inference_delay) -> Dict:  # noqa: UP006
+        unpacked_data = (obs, past_action_chunk, inference_delay)
+        data = self._packer.pack(unpacked_data)
         self._ws.send(data)
         response = self._ws.recv()
         if isinstance(response, str):
